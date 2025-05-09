@@ -41,6 +41,16 @@ resource "aws_subnet" "db" {
   }
 }
 
+# Private subnet (DB‑B) in a second AZ
+resource "aws_subnet" "db_b" {
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = "10.0.4.0/24"
+  availability_zone = "us-east-1a"
+  tags              = { 
+    Name = "db-subnet-b" 
+    }
+}
+
 # ---------------------------------------------------
 # Internet access for web tier
 # ---------------------------------------------------
@@ -210,4 +220,44 @@ resource "aws_instance" "app" {
 # Output app's private IP for testing
 output "app_private_ip" {
   value = aws_instance.app.private_ip
+}
+
+# ---------------------------------------------------
+# DB subnet group (uses the private DB subnet)
+# ---------------------------------------------------
+resource "aws_db_subnet_group" "db_subnets" {
+  name       = "db-subnet-group"
+  subnet_ids = [
+    aws_subnet.db.id,     # us-east-1f
+    aws_subnet.db_b.id    # us-east-1a
+  ]
+
+  tags = { Name = "db-subnet-group" }
+}
+
+# ---------------------------------------------------
+# RDS MySQL instance (free‑tier size)
+# ---------------------------------------------------
+resource "aws_db_instance" "mysql" {
+  identifier              = "secure-mysql"
+  engine                  = "mysql"
+  engine_version          = "8.0"
+  instance_class          = "db.t3.micro"   # free‑tier
+  allocated_storage       = 5               # GB
+  username                = "admin"
+  password                = "Passw0rd123!"  # demo; rotate in Secrets Manager for real use
+  db_subnet_group_name    = aws_db_subnet_group.db_subnets.name
+  vpc_security_group_ids  = [aws_security_group.db_sg.id]
+  skip_final_snapshot     = true            
+  backup_retention_period = 7               
+  deletion_protection      = false          
+
+  tags = { Name = "db-mysql" }
+}
+
+# ---------------------------------------------------
+# Outputs
+# ---------------------------------------------------
+output "db_endpoint" {
+  value = aws_db_instance.mysql.address
 }
