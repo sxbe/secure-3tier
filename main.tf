@@ -19,7 +19,7 @@ resource "aws_subnet" "web" {
   cidr_block              = "10.0.1.0/24"
   map_public_ip_on_launch = true
   tags = {
-    Name = "web-subnet" # CIS_2_1
+    Name = "web-subnet" # CIS_2_1 — Separate public subnet
   }
 }
 
@@ -32,7 +32,7 @@ resource "aws_subnet" "app" {
   }
 }
 
-# Private subnet (DB) — database layer
+# Private subnet (DB) — first AZ
 resource "aws_subnet" "db" {
   vpc_id     = aws_vpc.main.id
   cidr_block = "10.0.3.0/24"
@@ -41,8 +41,8 @@ resource "aws_subnet" "db" {
   }
 }
 
-# Private subnet (DB‑B) in a second AZ
-resource "aws_subnet" "db_b" {
+# Private subnet (DB‑B) second AZ
+resource "aws_subnet" "db_b" { # CIS_2_4 — Multi‑AZ subnets
   vpc_id            = aws_vpc.main.id
   cidr_block        = "10.0.4.0/24"
   availability_zone = "us-east-1a"
@@ -55,7 +55,7 @@ resource "aws_subnet" "db_b" {
 # Internet access for web tier
 # ---------------------------------------------------
 
-# Internet Gateway
+# CIS_3_1 — Attach single IGW to VPC
 resource "aws_internet_gateway" "igw" {
   vpc_id = aws_vpc.main.id
   tags   = { Name = "secure-igw" }
@@ -66,14 +66,14 @@ resource "aws_route_table" "public_rt" {
   vpc_id = aws_vpc.main.id
 
   route {
-    cidr_block = "0.0.0.0/0"
+    cidr_block = "0.0.0.0/0" # CIS_3_3 — Explicit 0.0.0.0/0 route via IGW
     gateway_id = aws_internet_gateway.igw.id
   }
 
   tags = { Name = "public-rt" }
 }
 
-# Attach route table to web subnet
+# CIS_3_3 — Associate public RT only with web subnet
 resource "aws_route_table_association" "web_assoc" {
   subnet_id      = aws_subnet.web.id
   route_table_id = aws_route_table.public_rt.id
@@ -83,20 +83,20 @@ resource "aws_route_table_association" "web_assoc" {
 # Security Groups (firewall rules)
 # ---------------------------------------------------
 
-# Web SG
+# CIS_4_1 — Restrict inbound traffic with SGs
 resource "aws_security_group" "web_sg" {
   name   = "web-sg"
   vpc_id = aws_vpc.main.id
 
   ingress {
-    from_port   = 80
+    from_port   = 80 # CIS_4_3 — 80 open to internet
     to_port     = 80
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
   ingress {
-    from_port   = 443
+    from_port   = 443 # CIS_4_3
     to_port     = 443
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
@@ -110,8 +110,8 @@ resource "aws_security_group" "web_sg" {
   }
 }
 
-# App SG
-resource "aws_security_group" "app_sg" {
+# App SG — only web‑sg can call port 5000
+resource "aws_security_group" "app_sg" { # CIS_4_1
   name   = "app-sg"
   vpc_id = aws_vpc.main.id
 
@@ -130,8 +130,8 @@ resource "aws_security_group" "app_sg" {
   }
 }
 
-# DB SG
-resource "aws_security_group" "db_sg" {
+# DB SG — only app‑sg can reach MySQL
+resource "aws_security_group" "db_sg" { # CIS_4_1
   name   = "db-sg"
   vpc_id = aws_vpc.main.id
 
@@ -260,4 +260,40 @@ resource "aws_db_instance" "mysql" {
 # ---------------------------------------------------
 output "db_endpoint" {
   value = aws_db_instance.mysql.address
+}
+
+# ---------------------------------------------------
+# CloudTrail (multi‑region) CIS_2_1 / CIS_2_2
+# ---------------------------------------------------
+resource "random_id" "rand" {
+  byte_length = 4
+}
+
+resource "aws_s3_bucket" "trail_bucket" {
+  bucket = "secure3tier-trail-${random_id.rand.hex}"
+  force_destroy = true                     
+}
+
+resource "aws_cloudtrail" "main" {
+  name                          = "ct-all"
+  s3_bucket_name                = aws_s3_bucket.trail_bucket.id
+  include_global_service_events = true
+  is_multi_region_trail         = true # CIS_2_1 — CloudTrail in all regions
+  enable_log_file_validation    = true # CIS_2_2 — Log file validation
+  tags = { Name = "cloudtrail-all" }
+}
+
+# ---------------------------------------------------
+# VPC Flow Logs (web subnet) CIS_3_2
+# ---------------------------------------------------
+resource "aws_cloudwatch_log_group" "flow" {
+  name              = "/vpc/flow"
+  retention_in_days = 7                
+}
+
+resource "aws_flow_log" "web" {
+  subnet_id       = aws_subnet.web.id
+  log_destination = aws_cloudwatch_log_group.flow.arn
+  traffic_type    = "ALL" # CIS_3_2 — Capture ACCEPT+REJECT
+  log_format      = "${version} ${interface-id} ${srcaddr} ${dstaddr} ${dstport} ${action}"
 }
