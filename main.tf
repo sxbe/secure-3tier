@@ -177,3 +177,37 @@ resource "aws_instance" "web" {
 output "web_public_ip" {
   value = aws_instance.web.public_ip
 }
+
+# ---------------------------------------------------
+# App‑tier EC2 (private subnet)
+# ---------------------------------------------------
+resource "aws_instance" "app" {
+  ami                    = data.aws_ami.amazon_linux.id   # same AMI data source used for web
+  instance_type          = "t2.micro"                     # free‑tier
+  subnet_id              = aws_subnet.app.id              # PRIVATE subnet
+  vpc_security_group_ids = [aws_security_group.app_sg.id] # only port 5000 from web SG
+  key_name               = "web-key"
+
+  user_data = <<-EOF
+              #!/bin/bash
+              # very simple Flask app on port 5000
+              yum install -y python3
+              pip3 install flask
+              cat > /tmp/app.py <<'PY'
+              from flask import Flask
+              app = Flask(__name__)
+              @app.route('/')
+              def hello():
+                  return 'Hello from App'
+              app.run(host='0.0.0.0', port=5000)
+              PY
+              nohup python3 /tmp/app.py &
+              EOF
+
+  tags = { Name = "app-ec2" }
+}
+
+# Output app's private IP for testing
+output "app_private_ip" {
+  value = aws_instance.app.private_ip
+}
