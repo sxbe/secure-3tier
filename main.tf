@@ -139,3 +139,41 @@ resource "aws_security_group" "db_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 }
+
+# ---------------------------------------------------
+# Web-tier EC2 instance
+# ---------------------------------------------------
+
+# Latest Amazon Linux 2023 (x86_64) AMI
+data "aws_ami" "amazon_linux" {
+  most_recent = true
+  owners      = ["amazon"]
+
+  filter {
+    name   = "name"
+    values = ["al2023-ami-*-x86_64"]   # looser match
+  }
+}
+
+# EC2 instance in public subnet
+resource "aws_instance" "web" {
+  ami                         = data.aws_ami.amazon_linux.id
+  instance_type               = "t2.micro"                 # free‑tier size
+  subnet_id                   = aws_subnet.web.id
+  vpc_security_group_ids      = [aws_security_group.web_sg.id]
+  key_name                    = "web-key"
+
+  user_data = <<-EOF
+              #!/bin/bash
+              yum install -y httpd
+              echo "Hello from Secure Web Tier" > /var/www/html/index.html
+              systemctl enable --now httpd
+              EOF
+
+  tags = { Name = "web-ec2" }
+}
+
+# Output public IP for testing
+output "web_public_ip" {
+  value = aws_instance.web.public_ip
+}
