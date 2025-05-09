@@ -40,3 +40,31 @@ resource "aws_subnet" "db" {
     Name = "db-subnet"
   }
 }
+
+# ---------------------------------------------------
+# Internet access for web tier
+# ---------------------------------------------------
+
+# Internet Gateway
+resource "aws_internet_gateway" "igw" {
+  vpc_id = aws_vpc.main.id
+  tags   = { Name = "secure-igw" }
+}
+
+# Public route table: sends 0.0.0.0/0 → IGW
+resource "aws_route_table" "public_rt" {
+  vpc_id = aws_vpc.main.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.igw.id
+  }
+
+  tags = { Name = "public-rt" }
+}
+
+# Attach route table to web subnet
+resource "aws_route_table_association" "web_assoc" {
+  subnet_id      = aws_subnet.web.id
+  route_table_id = aws_route_table.public_rt.id
+}
