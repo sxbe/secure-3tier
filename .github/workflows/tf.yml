@@ -1,0 +1,26 @@
+name: Terraform CI
+
+on: [pull_request]
+
+jobs:
+  fmt-plan:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.7.5
+
+      - name: Verify formatting (terraform fmt)
+        run: terraform fmt -check -recursive
+
+      - name: Init
+        run: terraform init -backend=false
+
+      - name: Plan (no backend)
+        run: terraform plan -lock=false -no-color
+
